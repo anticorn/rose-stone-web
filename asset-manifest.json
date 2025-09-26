@@ -1,15 +1,15 @@
 {
   "files": {
     "main.css": "/rose-stone-web/static/css/main.49c2889e.css",
-    "main.js": "/rose-stone-web/static/js/main.032f88b7.js",
+    "main.js": "/rose-stone-web/static/js/main.1ab20f8f.js",
     "static/js/453.85a17c4e.chunk.js": "/rose-stone-web/static/js/453.85a17c4e.chunk.js",
     "index.html": "/rose-stone-web/index.html",
     "main.49c2889e.css.map": "/rose-stone-web/static/css/main.49c2889e.css.map",
-    "main.032f88b7.js.map": "/rose-stone-web/static/js/main.032f88b7.js.map",
+    "main.1ab20f8f.js.map": "/rose-stone-web/static/js/main.1ab20f8f.js.map",
     "453.85a17c4e.chunk.js.map": "/rose-stone-web/static/js/453.85a17c4e.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.49c2889e.css",
-    "static/js/main.032f88b7.js"
+    "static/js/main.1ab20f8f.js"
   ]
 }
