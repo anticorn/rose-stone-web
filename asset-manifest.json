@@ -1,0 +1,15 @@
+{
+  "files": {
+    "main.css": "/rose-stone-web/static/css/main.49c2889e.css",
+    "main.js": "/rose-stone-web/static/js/main.b726607e.js",
+    "static/js/453.85a17c4e.chunk.js": "/rose-stone-web/static/js/453.85a17c4e.chunk.js",
+    "index.html": "/rose-stone-web/index.html",
+    "main.49c2889e.css.map": "/rose-stone-web/static/css/main.49c2889e.css.map",
+    "main.b726607e.js.map": "/rose-stone-web/static/js/main.b726607e.js.map",
+    "453.85a17c4e.chunk.js.map": "/rose-stone-web/static/js/453.85a17c4e.chunk.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.49c2889e.css",
+    "static/js/main.b726607e.js"
+  ]
+}
