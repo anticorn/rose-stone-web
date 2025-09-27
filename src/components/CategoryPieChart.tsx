@@ -28,11 +28,40 @@ export const CategoryPieChart: React.FC<CategoryPieChartProps> = ({
   businessCategoryTotals,
   isDarkMode
 }) => {
-  // Combine personal and business categories
-  const allCategories = [...personalCategoryTotals, ...businessCategoryTotals];
+  // Create a map to aggregate expenses by category name
+  const categoryMap = new Map<string, CategoryTotal>();
   
-  // Filter out categories with zero spending
-  const categoriesWithSpending = allCategories.filter(category => category.total > 0);
+  // Process personal categories
+  personalCategoryTotals.forEach(category => {
+    if (category.total > 0) {
+      if (categoryMap.has(category.name)) {
+        // If category already exists, add to the total
+        const existing = categoryMap.get(category.name)!;
+        existing.total += category.total;
+      } else {
+        // Add new category
+        categoryMap.set(category.name, { ...category });
+      }
+    }
+  });
+  
+  // Process business categories
+  businessCategoryTotals.forEach(category => {
+    if (category.total > 0) {
+      if (categoryMap.has(category.name)) {
+        // If category already exists, add to the total
+        const existing = categoryMap.get(category.name)!;
+        existing.total += category.total;
+      } else {
+        // Add new category
+        categoryMap.set(category.name, { ...category });
+      }
+    }
+  });
+  
+  // Convert map to array and sort by total amount (descending)
+  const categoriesWithSpending = Array.from(categoryMap.values())
+    .sort((a, b) => b.total - a.total);
   
   // If no spending, show empty state
   if (categoriesWithSpending.length === 0) {
@@ -88,11 +117,27 @@ export const CategoryPieChart: React.FC<CategoryPieChartProps> = ({
             const total = context.dataset.data.reduce((a: number, b: number) => a + b, 0);
             const percentage = ((value / total) * 100).toFixed(1);
             return `${label}: $${value.toFixed(2)} (${percentage}%)`;
+          },
+          afterLabel: function(context: any) {
+            const categoryName = context.label;
+            const personalTotal = personalCategoryTotals.find(cat => cat.name === categoryName)?.total || 0;
+            const businessTotal = businessCategoryTotals.find(cat => cat.name === categoryName)?.total || 0;
+            
+            if (personalTotal > 0 && businessTotal > 0) {
+              return `Personal: $${personalTotal.toFixed(2)} | Business: $${businessTotal.toFixed(2)}`;
+            } else if (personalTotal > 0) {
+              return `Personal: $${personalTotal.toFixed(2)}`;
+            } else if (businessTotal > 0) {
+              return `Business: $${businessTotal.toFixed(2)}`;
+            }
+            return '';
           }
         }
       },
     },
   };
+
+  const totalAmount = categoriesWithSpending.reduce((sum, category) => sum + category.total, 0);
 
   return (
     <div style={{ 
@@ -100,6 +145,21 @@ export const CategoryPieChart: React.FC<CategoryPieChartProps> = ({
       height: '400px',
       padding: '20px 0'
     }}>
+      <div style={{
+        textAlign: 'center',
+        marginBottom: '16px',
+        color: isDarkMode ? '#f1f5f9' : '#0f172a',
+        fontSize: '0.9rem'
+      }}>
+        <strong>Total: ${totalAmount.toFixed(2)}</strong>
+        <div style={{ 
+          fontSize: '0.8rem', 
+          color: isDarkMode ? '#94a3b8' : '#64748b',
+          marginTop: '4px'
+        }}>
+          Click on segments to see breakdown by type
+        </div>
+      </div>
       <Pie data={data} options={options} />
     </div>
   );

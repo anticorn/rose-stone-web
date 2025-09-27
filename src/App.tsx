@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
 import { GoogleDriveConfigComponent } from './components/GoogleDriveConfig';
+import { GoogleDriveFilePicker } from './components/GoogleDriveFilePicker';
 import { googleDriveService, GoogleDriveConfig } from './services/GoogleDriveService';
+import { googleAuthService, GoogleUser } from './services/GoogleAuthService';
+import { googleDriveIntegrationService } from './services/GoogleDriveIntegrationService';
 import { CategoryPieChart } from './components/CategoryPieChart';
 import { IconPicker } from './components/IconPicker';
 
@@ -13,6 +16,11 @@ interface Expense {
   date: string;
   description?: string;
   type: 'personal' | 'business';
+  userId?: string;
+  userInitials?: string;
+  userEmail?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface Budget {
@@ -80,6 +88,12 @@ export default function App(): React.JSX.Element {
   const [googleDriveConfig, setGoogleDriveConfig] = useState<GoogleDriveConfig | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [showGoogleDriveConfig, setShowGoogleDriveConfig] = useState(false);
+  const [currentUser, setCurrentUser] = useState<GoogleUser | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [showUserManagement, setShowUserManagement] = useState(false);
+  const [sharedUsers, setSharedUsers] = useState<string[]>([]);
+  const [showGoogleDrivePicker, setShowGoogleDrivePicker] = useState(false);
+  const [isSettingUpGoogleDrive, setIsSettingUpGoogleDrive] = useState(false);
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [filterType, setFilterType] = useState<'all' | 'personal' | 'business'>('all');
   const [sortBy, setSortBy] = useState<'date' | 'amount' | 'title'>('date');
@@ -117,7 +131,111 @@ export default function App(): React.JSX.Element {
     if (savedCategoryBudgets) {
       setCategoryBudgets(JSON.parse(savedCategoryBudgets));
     }
+
+    // Initialize Google Auth
+    initializeAuth();
+    
+    // Check for authentication callback from backend
+    handleAuthCallback();
   }, []);
+
+  const handleAuthCallback = () => {
+    // Extract app token from fragment #token=... (exact implementation from snippet)
+    const hash = window.location.hash.substring(1);
+    const params = new URLSearchParams(hash);
+    const token = params.get('token');
+    
+    if (token) {
+      localStorage.setItem('rst_app_token', token);
+      // Remove token from URL
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      
+      // Set authenticated state
+      setIsAuthenticated(true);
+      
+      // Show Google Drive file picker
+      setShowGoogleDrivePicker(true);
+    }
+  };
+
+  const initializeAuth = async () => {
+    try {
+      // Check for stored token using the exact key from snippet
+      const storedToken = localStorage.getItem('rst_app_token');
+      
+      if (storedToken) {
+        setIsAuthenticated(true);
+        
+        // Set up Google Drive services with token
+        googleDriveIntegrationService.setAccessToken(storedToken);
+      }
+    } catch (error) {
+      console.error('Failed to initialize auth:', error);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    try {
+      // Try multiple backend URLs in case the primary one is not available
+      const backendUrls = [
+        'https://rose-stone-backend.vercel.app',
+        'https://rose-stone-backend-git-main-anticorn.vercel.app',
+        'https://rose-stone-backend-anticorn.vercel.app'
+      ];
+      
+      const currentUrl = window.location.origin + window.location.pathname;
+      
+      // For now, show an alert with instructions since backend might not be deployed
+      alert(`Backend not available. Please deploy the backend first.\n\nTo fix this:\n1. Go to the 'backend-setup' folder\n2. Run 'vercel' to deploy\n3. Update the backend URL in the code\n\nCurrent backend URLs tried:\n${backendUrls.join('\n')}`);
+      
+      // Uncomment this line once backend is deployed:
+      // window.location.href = `${backendUrls[0]}/api/auth/start?returnUrl=${encodeURIComponent(currentUrl)}`;
+    } catch (error) {
+      console.error('Failed to redirect to Google sign-in:', error);
+      alert('Failed to redirect to Google sign-in. Please try again.');
+    }
+  };
+
+  const handleGoogleSignOut = async () => {
+    try {
+      // Get stored token
+      const token = localStorage.getItem('rst_app_token');
+      
+      if (token) {
+        // Call backend disconnect endpoint to revoke refresh token
+        try {
+          await fetch('https://rose-stone-backend.vercel.app/api/auth/disconnect', {
+            method: 'POST',
+            headers: { 
+              'Authorization': 'Bearer ' + token,
+              'Content-Type': 'application/json'
+            }
+          });
+        } catch (error) {
+          console.error('Failed to disconnect from backend:', error);
+          // Continue with local cleanup even if backend call fails
+        }
+      }
+      
+      // Clear local state and stored data
+      setCurrentUser(null);
+      setIsAuthenticated(false);
+      localStorage.removeItem('rst_app_token');
+      
+      // Clear Google Drive config
+      setGoogleDriveConfig(null);
+      localStorage.removeItem('roseStoneGoogleDriveConfig');
+      
+    } catch (error) {
+      console.error('Failed to sign out:', error);
+      // Fallback: just clear local state
+      setCurrentUser(null);
+      setIsAuthenticated(false);
+      localStorage.removeItem('rst_app_token');
+      setGoogleDriveConfig(null);
+      localStorage.removeItem('roseStoneGoogleDriveConfig');
+    }
+  };
 
   // Save data to localStorage whenever expenses or budgets change
   useEffect(() => {
@@ -235,7 +353,18 @@ export default function App(): React.JSX.Element {
     // Save to Google Drive if configured
     if (googleDriveConfig) {
       try {
+        // Save to both services for now
         await googleDriveService.saveExpense(newExpense);
+        
+        // Also save to the new integration service
+        const sheetId = newExpense.type === 'personal' 
+          ? googleDriveConfig.personalSheetId 
+          : googleDriveConfig.businessSheetId;
+        const sheetName = newExpense.type === 'personal' 
+          ? googleDriveConfig.personalSheetName 
+          : googleDriveConfig.businessSheetName;
+          
+        await googleDriveIntegrationService.addExpenseToSheet(sheetId, sheetName, newExpense);
       } catch (error) {
         console.error('Failed to save to Google Drive:', error);
         alert('Failed to save to Google Drive. Data saved locally.');
@@ -328,6 +457,10 @@ export default function App(): React.JSX.Element {
     // Initialize the Google Drive service
     await googleDriveService.setConfig(config);
     
+    // Load shared users
+    const users = await googleDriveService.getSharedUsers();
+    setSharedUsers(users);
+    
     // Try to load existing data from Google Drive
     try {
       const driveData = await googleDriveService.loadExpenses();
@@ -337,6 +470,93 @@ export default function App(): React.JSX.Element {
     } catch (error) {
       console.error('Failed to load from Google Drive:', error);
       alert('Failed to load data from Google Drive. Using local data.');
+    }
+  };
+
+  const handleShareWithUser = async (userEmail: string) => {
+    if (!googleDriveConfig) {
+      alert('Please configure Google Drive first');
+      return;
+    }
+
+    try {
+      // Share both personal and business sheets
+      await googleDriveService.shareSheetWithUser(googleDriveConfig.personalSheetId, userEmail);
+      await googleDriveService.shareSheetWithUser(googleDriveConfig.businessSheetId, userEmail);
+      
+      // Update shared users list
+      const users = await googleDriveService.getSharedUsers();
+      setSharedUsers(users);
+      
+      alert(`Successfully shared sheets with ${userEmail}`);
+    } catch (error) {
+      console.error('Failed to share with user:', error);
+      alert('Failed to share with user. Please try again.');
+    }
+  };
+
+  const handleRemoveUser = async (userEmail: string) => {
+    if (!googleDriveConfig) {
+      alert('Please configure Google Drive first');
+      return;
+    }
+
+    try {
+      // Remove from both personal and business sheets
+      await googleDriveService.removeUserFromSheet(googleDriveConfig.personalSheetId, userEmail);
+      await googleDriveService.removeUserFromSheet(googleDriveConfig.businessSheetId, userEmail);
+      
+      // Update shared users list
+      const users = await googleDriveService.getSharedUsers();
+      setSharedUsers(users);
+      
+      alert(`Successfully removed ${userEmail} from sheets`);
+    } catch (error) {
+      console.error('Failed to remove user:', error);
+      alert('Failed to remove user. Please try again.');
+    }
+  };
+
+  const handleGoogleDriveFileSelected = async (fileId: string, fileName: string) => {
+    try {
+      setIsSettingUpGoogleDrive(true);
+      
+      // For now, we'll create a simple config with the selected file
+      // In a real implementation, you'd check if the file has the right format
+      const config: GoogleDriveConfig = {
+        personalSheetId: fileId,
+        businessSheetId: fileId, // Using same file for both for simplicity
+        personalSheetName: 'Personal Expenses',
+        businessSheetName: 'Business Expenses',
+        sharedWithUsers: []
+      };
+
+      await handleGoogleDriveConfig(config);
+      setShowGoogleDrivePicker(false);
+      alert(`Successfully connected to "${fileName}"! Your expenses will now sync to Google Drive.`);
+    } catch (error) {
+      console.error('Failed to set up Google Drive file:', error);
+      alert('Failed to set up Google Drive file. Please try again.');
+    } finally {
+      setIsSettingUpGoogleDrive(false);
+    }
+  };
+
+  const handleCreateNewGoogleDriveFile = async () => {
+    try {
+      setIsSettingUpGoogleDrive(true);
+      
+      // Create new spreadsheets with proper formatting
+      const config = await googleDriveIntegrationService.setupExpenseTrackerSpreadsheets();
+      
+      await handleGoogleDriveConfig(config);
+      setShowGoogleDrivePicker(false);
+      alert('Successfully created new expense tracker spreadsheets in your Google Drive!');
+    } catch (error) {
+      console.error('Failed to create Google Drive files:', error);
+      alert('Failed to create Google Drive files. Please try again.');
+    } finally {
+      setIsSettingUpGoogleDrive(false);
     }
   };
 
@@ -511,6 +731,67 @@ export default function App(): React.JSX.Element {
           </div>
         </div>
         <div className="header-actions">
+          {isAuthenticated ? (
+            <div className="user-info" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginRight: '12px' }}>
+              <button 
+                id="listFiles"
+                className="list-files-button" 
+                onClick={() => setShowGoogleDrivePicker(true)}
+                style={{
+                  ...cardStyle,
+                  padding: '8px 16px',
+                  fontSize: '0.9rem',
+                  backgroundColor: '#10b981',
+                  color: 'white',
+                  border: 'none'
+                }}
+              >
+                List my Drive files
+              </button>
+              <button 
+                className="disconnect-button" 
+                onClick={handleGoogleSignOut}
+                style={{
+                  ...cardStyle,
+                  padding: '6px 12px',
+                  fontSize: '0.8rem',
+                  backgroundColor: '#ef4444',
+                  color: 'white',
+                  border: 'none'
+                }}
+              >
+                Disconnect Google
+              </button>
+            </div>
+          ) : (
+            <div className="auth-section" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '12px' }}>
+              <a 
+                id="signIn"
+                href="https://rose-stone-backend.vercel.app/api/auth/start"
+                style={{
+                  ...cardStyle,
+                  padding: '8px 16px',
+                  fontSize: '0.9rem',
+                  backgroundColor: '#4285f4',
+                  color: 'white',
+                  border: 'none',
+                  textDecoration: 'none',
+                  display: 'inline-block',
+                  borderRadius: '6px'
+                }}
+              >
+                Sign in with Google
+              </a>
+              <div className="auth-info" style={{
+                fontSize: '0.8rem',
+                color: isDarkMode ? '#94a3b8' : '#64748b',
+                maxWidth: '200px'
+              }}>
+                <div>🔐 Backend Authentication</div>
+                <div>Redirects to /api/auth/start</div>
+              </div>
+            </div>
+          )}
           <button 
             className="theme-toggle" 
             onClick={toggleTheme}
@@ -1063,6 +1344,23 @@ export default function App(): React.JSX.Element {
                           >
                             {expense.type === 'personal' ? 'Personal' : 'Business'}
                           </span>
+                          {expense.userInitials && (
+                            <span 
+                              className="expense-user"
+                              style={{
+                                backgroundColor: '#6b7280',
+                                color: 'white',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                fontSize: '0.7rem',
+                                fontWeight: '500',
+                                marginLeft: '8px'
+                              }}
+                              title={`Added by ${expense.userEmail || 'Unknown User'}`}
+                            >
+                              {expense.userInitials}
+                            </span>
+                          )}
                         </div>
                         {expense.description && (
                           <p className="expense-description" style={{ color: isDarkMode ? '#94a3b8' : '#64748b' }}>
@@ -1367,6 +1665,23 @@ export default function App(): React.JSX.Element {
               <p style={{ color: isDarkMode ? '#94a3b8' : '#64748b' }}>
                 Connect your Google Drive to automatically sync your expenses with separate sheets for personal and business expenses.
               </p>
+              <div className="oauth-notice" style={{
+                backgroundColor: isDarkMode ? '#334155' : '#dbeafe',
+                border: '1px solid #3b82f6',
+                borderRadius: '6px',
+                padding: '12px',
+                marginBottom: '16px'
+              }}>
+                <div style={{ color: '#3b82f6', fontWeight: 'bold', marginBottom: '8px' }}>
+                  🔐 Backend Authentication
+                </div>
+                <div style={{ color: isDarkMode ? '#94a3b8' : '#1e40af', fontSize: '0.9rem', marginBottom: '8px' }}>
+                  Authentication flows through <strong>/api/auth/start</strong> and captures token fragments
+                </div>
+                <div style={{ color: isDarkMode ? '#94a3b8' : '#1e40af', fontSize: '0.8rem' }}>
+                  Google Drive files are fetched via <strong>/api/drive/list</strong> with Bearer token
+                </div>
+              </div>
               {googleDriveConfig && (
                 <div className="config-status" style={{ color: '#10b981', marginBottom: '12px' }}>
                   ✅ Connected to Google Drive
@@ -1383,6 +1698,82 @@ export default function App(): React.JSX.Element {
                 {googleDriveConfig ? 'Reconfigure Google Drive' : 'Connect Google Drive'}
               </button>
             </div>
+
+            {googleDriveConfig && (
+              <div className="settings-section">
+                <h4 style={textStyle}>User Management</h4>
+                <p style={{ color: isDarkMode ? '#94a3b8' : '#64748b', marginBottom: '16px' }}>
+                  Share your expense sheets with other users for collaborative tracking.
+                </p>
+                
+                <div className="user-management">
+                  <div className="add-user-section" style={{ marginBottom: '16px' }}>
+                    <input
+                      type="email"
+                      placeholder="Enter user email to share"
+                      className="form-input"
+                      style={{ ...textStyle, borderColor: isDarkMode ? '#334155' : '#e2e8f0', marginRight: '8px', width: '200px' }}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter') {
+                          const target = e.target as HTMLInputElement;
+                          if (target.value.trim()) {
+                            handleShareWithUser(target.value.trim());
+                            target.value = '';
+                          }
+                        }
+                      }}
+                    />
+                    <button
+                      className="button primary"
+                      onClick={(e) => {
+                        const input = e.currentTarget.previousElementSibling as HTMLInputElement;
+                        if (input.value.trim()) {
+                          handleShareWithUser(input.value.trim());
+                          input.value = '';
+                        }
+                      }}
+                    >
+                      Share
+                    </button>
+                  </div>
+
+                  {sharedUsers.length > 0 && (
+                    <div className="shared-users-list">
+                      <h5 style={textStyle}>Shared Users:</h5>
+                      {sharedUsers.map((userEmail, index) => (
+                        <div key={index} className="shared-user-item" style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '8px 12px',
+                          backgroundColor: isDarkMode ? '#334155' : '#f8fafc',
+                          borderRadius: '6px',
+                          marginBottom: '8px',
+                          border: '1px solid var(--border-color)'
+                        }}>
+                          <span style={textStyle}>{userEmail}</span>
+                          <button
+                            className="action-button delete"
+                            onClick={() => handleRemoveUser(userEmail)}
+                            style={{
+                              backgroundColor: '#ef4444',
+                              color: 'white',
+                              border: 'none',
+                              padding: '4px 8px',
+                              borderRadius: '4px',
+                              fontSize: '0.8rem',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="settings-section">
               <h4 style={textStyle}>Category Management</h4>
@@ -1469,6 +1860,14 @@ export default function App(): React.JSX.Element {
         onClose={() => setShowGoogleDriveConfig(false)}
         onSave={handleGoogleDriveConfig}
         currentConfig={googleDriveConfig}
+        isDarkMode={isDarkMode}
+      />
+
+      <GoogleDriveFilePicker
+        isVisible={showGoogleDrivePicker}
+        onClose={() => setShowGoogleDrivePicker(false)}
+        onFileSelected={handleGoogleDriveFileSelected}
+        onCreateNew={handleCreateNewGoogleDriveFile}
         isDarkMode={isDarkMode}
       />
     </div>
